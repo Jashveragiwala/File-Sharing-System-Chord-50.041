@@ -43,7 +43,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 
 	// Dynamically calculate chunk size
 	chunkSize = int(math.Ceil(float64(fileSize) / float64(numChunks)))
-	fmt.Printf("Chunk size: %v, number of Chunks: %v", chunkSize, numChunks)
+	// fmt.Printf("Chunk size: %v, number of Chunks: %v", chunkSize, numChunks)
 	// Open the source file
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -61,6 +61,8 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	// Single node failure - Simulate node failure before chunking (before sending chunk info)
 	// fmt.Println("Waiting for 10 seconds before chunking. You can now kill the sender node.")
 	// time.Sleep(10 * time.Second)
+	fmt.Println("Killing the sender node to simulate failure before chunk Info is sent.")
+	os.Exit(1)
 
 	for {
 		bytesRead, err := file.Read(buffer)
@@ -138,7 +140,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	fmt.Printf("Going to send to chunk location receiver\n")
 	// fmt.Printf("Kill the target node in the 3 second duration.\n")
 	// time.Sleep(3 * time.Second)
-	
+
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -280,6 +282,7 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 	copy(chunksCopy, message.ChunkTransferParams.Chunks)
 
 	// Single node failure - Simulate node failure before chunking (before sending chunk info)
+
 	// time.Sleep(10 * time.Second)
 
 	done := make(chan error, 1)
@@ -331,9 +334,9 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for red text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
 }
