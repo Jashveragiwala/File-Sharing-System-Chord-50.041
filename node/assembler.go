@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -41,8 +42,8 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	}
 
 	// Single node failure - Simulate node failure before/during assembly (after sending chunk info)
-	// fmt.Printf("Pausing for 10 seconds before assembly. You can stop the sender now to simulate failure.\n")
-	// time.Sleep(10 * time.Second)
+	fmt.Printf("Pausing for 10 seconds before assembly. You can stop the sender now to simulate failure.\n")
+	time.Sleep(10 * time.Second)
 
 	// Killing for experiment simulation
 	// fmt.Printf("Pausing for 15 seconds before assembly. You can stop the node now to simulate failure.\n")
