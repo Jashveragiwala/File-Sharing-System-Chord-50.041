@@ -43,7 +43,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 
 	// Dynamically calculate chunk size
 	chunkSize = int(math.Ceil(float64(fileSize) / float64(numChunks)))
-	fmt.Printf("Chunk size: %v, number of Chunks: %v", chunkSize, numChunks)
+	// fmt.Printf("Chunk size: %v, number of Chunks: %v", chunkSize, numChunks)
 	// Open the source file
 	file, err := os.Open(filePath)
 	if err != nil {
