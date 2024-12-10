@@ -115,6 +115,9 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 		return nil
 	}
 
+	// Byzantine Failure for changing the chunk name
+	n.SimulateByzantineFailure(chunks)
+
 	// Send the chunk info to the target node for assembling
 	elapsedTime := time.Since(startTime).Seconds()
 	if elapsedTime >= 10 {
@@ -138,7 +141,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	fmt.Printf("Going to send to chunk location receiver\n")
 	// fmt.Printf("Kill the target node in the 3 second duration.\n")
 	// time.Sleep(3 * time.Second)
-	
+
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -331,9 +334,26 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for red text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
+}
+
+// Simulate a Byzantine failure by renaming chunks on a random node
+func (n *Node) SimulateByzantineFailure(chunkInfo []ChunkInfo) {
+	for _, chunk := range chunkInfo {
+		// Construct the old and new file paths
+		oldPath := filepath.Join(dataFolder, chunk.ChunkName)
+		newChunkName := fmt.Sprintf("malicious_%s", chunk.ChunkName)
+		newPath := filepath.Join(dataFolder, newChunkName)
+
+		err := os.Rename(oldPath, newPath)
+		if err != nil {
+			fmt.Printf("[NODE-%d] Failed to rename chunk %s: %v\n", n.ID, chunk.ChunkName, err)
+		} else {
+			fmt.Printf("[NODE-%d] Renamed chunk %s to %s\n", n.ID, chunk.ChunkName, newChunkName)
+		}
+	}
 }
