@@ -106,6 +106,11 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	}
 
 	fmt.Println("Sending the chunks to the receiver folder of the target node ...")
+
+	// Multiple Node Failures - Simulate node failure after during chunking
+	// fmt.Printf("Pausing for 20 seconds during chunking. Crash other nodes now.\n")
+	// time.Sleep(20 * time.Second)
+
 	err = n.send(chunks, targetNodeIP)
 	if err != nil {
 		fmt.Printf("Target Node is down,failed to send chunks to target node: %v\n", err)
@@ -138,7 +143,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	fmt.Printf("Going to send to chunk location receiver\n")
 	// fmt.Printf("Kill the target node in the 3 second duration.\n")
 	// time.Sleep(3 * time.Second)
-	
+
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -300,8 +305,8 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 		var assemblerReply Message
 
 		// Multiple Node Failures - Simulate node failure after chunking/before assembly
-		// fmt.Printf("Pausing for 20 seconds before assembly. Crash other nodes now.\n")
-		// time.Sleep(20 * time.Second)
+		fmt.Printf("Pausing for 15 seconds before assembly. Crash other nodes now.\n")
+		time.Sleep(15 * time.Second)
 
 		err := n.Assembler(assemblerMessage, &assemblerReply)
 		done <- err
@@ -331,9 +336,9 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for red text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
 }
