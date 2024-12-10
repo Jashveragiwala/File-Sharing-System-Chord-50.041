@@ -138,7 +138,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	fmt.Printf("Going to send to chunk location receiver\n")
 	// fmt.Printf("Kill the target node in the 3 second duration.\n")
 	// time.Sleep(3 * time.Second)
-	
+
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -273,7 +273,7 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 	}
 
 	//Simulate target node failure before assembly
-	//os.Exit(1)
+	os.Exit(1)
 
 	// Create a copy of the chunks to pass to the goroutine
 	chunksCopy := make([]ChunkInfo, len(message.ChunkTransferParams.Chunks))
@@ -331,9 +331,9 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for red text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
 }
