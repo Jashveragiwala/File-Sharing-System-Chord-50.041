@@ -81,6 +81,7 @@ func (n *Node) RequestFileTransfer(targetNodeID int, fileName string) error {
 	var err error
 	message := Message{ID: targetNodeID}
 
+	// Find the target node
 	for i := 0; i < retries; i++ {
 		err := n.FindSuccessor(message, &reply)
 		if err != nil {
@@ -88,19 +89,17 @@ func (n *Node) RequestFileTransfer(targetNodeID int, fileName string) error {
 		}
 		if reply.ID != targetNodeID {
 			fmt.Printf("Node %d not found. Retrying to find successor (attempt %d of %d)\n", targetNodeID, i+1, retries)
-			time.Sleep(3 * time.Second) // retry after 3 seconds
+			time.Sleep(3 * time.Second)
 		} else {
 			break
 		}
 	}
 
-	// time.Sleep(5 * time.Second) // Sleep for checking if the find successor detects the target node as alive but is actually sleeping.
 	targetNodeIP := reply.IP
 	fmt.Printf("Target node IP: %s\n", targetNodeIP)
 
 	if n.IP == targetNodeIP {
-		fmt.Println("Cannot send file to the same node.")
-		return nil
+		return fmt.Errorf("cannot send file to the same node")
 	}
 
 	request := Message{
@@ -110,40 +109,35 @@ func (n *Node) RequestFileTransfer(targetNodeID int, fileName string) error {
 
 	var response *Message
 	var success bool
+
+	// Confirm file transfer
 	for i := 0; i < retries; i++ {
 		success = false
 		response, err = CallRPCMethod(targetNodeIP, "Node.ConfirmFileTransfer", request)
 		if err != nil {
-			// target node fail before chunking
 			fmt.Printf("[NODE-%d] Error confirming file transfer.\n", n.ID)
-			fmt.Printf("[NODE-%d] Retrying file transfer confirmation to node %d (attempt %d of %d)\n", n.ID, targetNodeID, i+1, retries)
-			time.Sleep(3 * time.Second) // retry after 3 seconds
+			time.Sleep(3 * time.Second)
 		} else {
 			success = true
 			break
 		}
 	}
 
-	if !success {
-		return fmt.Errorf("failed to confirm file transfer after %d attempts", retries)
+	if !success || response.Type != CONFIRM {
+		return fmt.Errorf("file transfer declined or confirmation failed")
 	}
 
-	if response.Type == CONFIRM {
-		fmt.Println("\nTarget accepted the file transfer. Initiating transfer...")
-		startTime := time.Now()
-		n.StartReq = startTime
-		chunks := n.Chunker(fileName, targetNodeIP, startTime)
-		if len(chunks) > 0 {
-			//i changed this to chunk transfer, since printing out file transfer completed when simulating target node faliue during assembly may look weird to prof
-			fmt.Printf("\nChunk transfer completed with %d chunks.\n", len(chunks))
-		} else {
-			fmt.Println("\nFile transfer failed - no chunks created.")
-		}
-	} else {
-		fmt.Println("\nTarget declined the file transfer.")
+	fmt.Println("\nTarget accepted the file transfer. Initiating transfer...")
+	startTime := time.Now()
+	n.StartReq = startTime
+
+	// Proceed with File Chunking and Transfer
+	chunks := n.Chunker(fileName, targetNodeIP, startTime)
+	if len(chunks) == 0 {
+		return fmt.Errorf("file transfer failed - no chunks created")
 	}
 
-	fmt.Println("\nReturning to main menu...")
+	fmt.Printf("File transfer completed with %d chunks.\n", len(chunks))
 	return nil
 }
 
@@ -623,5 +617,36 @@ func (n *Node) ForceExit(message Message, reply *Message) error {
 	go func() {
 		os.Exit(1)
 	}()
+	return nil
+}
+
+// SimulateByzantineFailure corrupts all chunks in the node's shared directory
+func (n *Node) SimulateByzantineFailure(message Message, reply *Message) error {
+	// Read all files from the shared directory
+	files, err := os.ReadDir(dataFolder)
+	if err != nil {
+		return fmt.Errorf("failed to read chunks from %s: %v", dataFolder, err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no chunks available for failure simulation")
+	}
+
+	// Rename all chunks to simulate data corruption
+	for _, file := range files {
+		oldChunk := file.Name()
+		oldPath := filepath.Join(dataFolder, oldChunk)
+		newChunkName := fmt.Sprintf("malicious_%s", oldChunk)
+		newPath := filepath.Join(dataFolder, newChunkName)
+
+		// Rename the chunk to simulate corruption
+		err := os.Rename(oldPath, newPath)
+		if err != nil {
+			fmt.Printf("[NODE-%d] Failed to rename chunk %s: %v\n", n.ID, oldChunk, err)
+			continue
+		}
+		fmt.Printf("[NODE-%d] Renamed chunk %s to %s (Byzantine Failure Simulation)\n", oldChunk, newChunkName)
+	}
+
+	fmt.Printf("[NODE-%d] Byzantine failure simulation completed: All chunks renamed.\n", n.ID)
 	return nil
 }

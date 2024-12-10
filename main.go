@@ -118,12 +118,7 @@ func main() {
 			fmt.Print("Enter Target Node ID: ")
 			fmt.Scan(&targetNodeID)
 
-			// if targetNodeID == n.ID {
-			// 	fmt.Println("Cannot transfer file to self")
-			// 	continue
-			// }
-
-			// Checking if target node exists or is alive
+			// Ensure the target node exists
 			nodeExists := false
 			nodes, err := getAllNodes(n)
 			if err != nil {
@@ -131,7 +126,6 @@ func main() {
 			} else {
 				for _, node := range nodes {
 					if node.ID == targetNodeID {
-						fmt.Printf("Node %d exists in the network\n", targetNodeID)
 						nodeExists = true
 						break
 					}
@@ -143,22 +137,17 @@ func main() {
 				continue
 			}
 
-			// time.Sleep(5 * time.Second)
 			fmt.Print("Enter the file name to transfer: ")
 			fmt.Scan(&fileName)
-			// time.Sleep(5 * time.Second)
-			fmt.Printf("File transfer initiated successfully.\n")
-			fmt.Printf("File Name: %s, Target Node IP: %d\n", fileName, targetNodeID)
-			// time.Sleep(5 * time.Second)
 
-			// Call a function to handle the file transfer (implement this function in node package)
-			err2 := n.RequestFileTransfer(targetNodeID, fileName)
+			fmt.Println("Starting file transfer with Byzantine simulation...")
+			err = n.RequestFileTransfer(targetNodeID, fileName)
 
-			if err2 != nil {
-				fmt.Printf("File transfer failed: %v\n", err2)
+			if err != nil {
+				fmt.Printf("File transfer failed: %v\n", err)
+			} else {
+				fmt.Println("File transfer completed successfully.")
 			}
-			// 	fmt.Println("File transfer initiated successfully.")
-			// }
 		case 4:
 			showmenu()
 		case 5:

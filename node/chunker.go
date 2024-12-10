@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,8 +116,19 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 		return nil
 	}
 
-	// Byzantine Failure for changing the chunk name
-	n.SimulateByzantineFailure(chunks)
+	// Inject Byzantine Failure Simulation
+	fmt.Println("Injecting Byzantine failure simulation...")
+	nodes, _ := getAllNodes(n)
+	rand.Seed(time.Now().UnixNano())
+	randomNode := nodes[rand.Intn(len(nodes))]
+	fmt.Printf("Simulating Byzantine failure on Node %d (%s)\n", randomNode.ID, randomNode.IP)
+
+	// Call Byzantine failure simulation RPC
+	byzMessage := Message{}
+	_, byzErr := CallRPCMethod(randomNode.IP, "Node.SimulateByzantineFailure", byzMessage)
+	if byzErr != nil {
+		fmt.Printf("Failed to simulate Byzantine failure on Node %d: %v\n", randomNode.ID, byzErr)
+	}
 
 	// Send the chunk info to the target node for assembling
 	elapsedTime := time.Since(startTime).Seconds()
@@ -339,21 +351,4 @@ func (n *Node) AssemblerComplete(message Message, reply *Message) error {
 	fmt.Printf("File Transfer has successfully completed.\n")
 	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
-}
-
-// Simulate a Byzantine failure by renaming chunks on a random node
-func (n *Node) SimulateByzantineFailure(chunkInfo []ChunkInfo) {
-	for _, chunk := range chunkInfo {
-		// Construct the old and new file paths
-		oldPath := filepath.Join(dataFolder, chunk.ChunkName)
-		newChunkName := fmt.Sprintf("malicious_%s", chunk.ChunkName)
-		newPath := filepath.Join(dataFolder, newChunkName)
-
-		err := os.Rename(oldPath, newPath)
-		if err != nil {
-			fmt.Printf("[NODE-%d] Failed to rename chunk %s: %v\n", n.ID, chunk.ChunkName, err)
-		} else {
-			fmt.Printf("[NODE-%d] Renamed chunk %s to %s\n", n.ID, chunk.ChunkName, newChunkName)
-		}
-	}
 }
