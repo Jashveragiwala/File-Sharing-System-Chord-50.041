@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -108,8 +109,8 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 			targetNode := Pointer{ID: reply.ID, IP: reply.IP}
 
 			// Introduce a sleep to simulate delay
-			// fmt.Printf("Simulating delay before contacting target node %d (%s). You can stop the node now to simulate failure.\n", targetNode.ID, targetNode.IP)
-			// time.Sleep(10 * time.Second)
+			fmt.Printf("Simulating delay before contacting target node %d (%s). You can stop the node now to simulate failure.\n", targetNode.ID, targetNode.IP)
+			time.Sleep(10 * time.Second)
 
 			// Attempt to get the successor list from the target node
 			successorReply, err := CallRPCMethod(targetNode.IP, "Node.GetSuccessorList", Message{})
