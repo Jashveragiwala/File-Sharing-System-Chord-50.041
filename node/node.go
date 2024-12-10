@@ -167,8 +167,8 @@ func (n *Node) handleReceiverTimeout(senderIP string) {
 				n.AssemblerChunks = []ChunkInfo{} // Clear the assembler chunks
 				return
 			}
-			if elapsed >= 35 && len(chunks) == 0 {
-				fmt.Println("\n\nRECEIVER TIMEOUT: No chunks received from sender in 30 seconds")
+			if elapsed >= 15 && len(chunks) == 0 {
+				fmt.Println("\n\nRECEIVER TIMEOUT: No chunks received from sender in 15 seconds")
 				fmt.Println("Sender node may have crashed.")
 				fmt.Println("\nReturning to main menu...")
 				return
