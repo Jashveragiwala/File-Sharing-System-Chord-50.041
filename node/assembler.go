@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -48,9 +49,9 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	// fmt.Printf("Pausing for 15 seconds before assembly. You can stop the node now to simulate failure.\n")
 	// time.Sleep(15 * time.Second)
 
-	// Multiple Node Failures - Simulate node failure after during assembly
-	// fmt.Printf("Pausing for 20 seconds during assembly. Crash other nodes now.\n")
-	// time.Sleep(20 * time.Second)
+	// Multiple Node Failures - Simulate node failure during assembly
+	fmt.Printf("Pausing for 15 seconds during assembly. Crash other nodes now.\n")
+	time.Sleep(15 * time.Second)
 
 	err = n.getAllChunks(message.ChunkTransferParams.Chunks)
 	if err != nil {
