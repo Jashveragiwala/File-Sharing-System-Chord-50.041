@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,6 +116,20 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 		return nil
 	}
 
+	// Simulate Byzantine Failure after chunk transfer
+	fmt.Println("Injecting Byzantine failure simulation...")
+	nodes, _ := getAllNodes(n)
+	rand.Seed(time.Now().UnixNano())
+	randomNode := nodes[rand.Intn(len(nodes))]
+	fmt.Printf("Simulating Byzantine failure on Node %d (%s)\n", randomNode.ID, randomNode.IP)
+
+	// Call Byzantine failure simulation on the random node
+	byzMessage := Message{}
+	_, byzErr := CallRPCMethod(randomNode.IP, "Node.SimulateByzantineFailure", byzMessage)
+	if byzErr != nil {
+		fmt.Printf("Failed to simulate Byzantine failure on Node %d: %v\n", randomNode.ID, byzErr)
+	}
+
 	// Send the chunk info to the target node for assembling
 	elapsedTime := time.Since(startTime).Seconds()
 	if elapsedTime >= 10 {
@@ -138,7 +153,7 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	fmt.Printf("Going to send to chunk location receiver\n")
 	// fmt.Printf("Kill the target node in the 3 second duration.\n")
 	// time.Sleep(3 * time.Second)
-	
+
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -331,9 +346,9 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for green text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
 }

@@ -625,3 +625,77 @@ func (n *Node) ForceExit(message Message, reply *Message) error {
 	}()
 	return nil
 }
+
+// SimulateByzantineFailure corrupts all chunks in the node's shared directory
+// SimulateByzantineFailure modifies chunk contents to be empty.// SimulateByzantineFailure corrupts all chunks by writing "Byzantine" in their content.
+func (n *Node) SimulateByzantineFailure(message Message, reply *Message) error {
+	chunkFiles, err := os.ReadDir(dataFolder)
+	if err != nil {
+		return fmt.Errorf("failed to read directory %s: %v", dataFolder, err)
+	}
+
+	if len(chunkFiles) == 0 {
+		return fmt.Errorf("no chunks available for failure simulation")
+	}
+
+	for _, file := range chunkFiles {
+		chunkPath := filepath.Join(dataFolder, file.Name())
+
+		// Corrupt the file by writing "Byzantine" as its new content
+		err := os.WriteFile(chunkPath, []byte("Byzantine"), 0644)
+		if err != nil {
+			fmt.Printf("[NODE-%d] Failed to corrupt chunk %s: %v\n", n.ID, file.Name(), err)
+			return err
+		}
+
+		fmt.Printf("[NODE-%d] Corrupted chunk %s by writing 'Byzantine'.\n", n.ID, file.Name())
+	}
+
+	return nil
+}
+
+// retrieveChunk attempts to retrieve a chunk from the specified node IP.
+func (n *Node) retrieveChunk(nodeIP string, chunkName string) ([]byte, error) {
+	request := Message{
+		ChunkTransferParams: ChunkTransferRequest{
+			ChunkName: chunkName,
+		},
+	}
+	var reply Message
+	const maxRetries = 3
+	const retryInterval = 2 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := CallRPCMethodWithTimeout(nodeIP, "Node.SendChunk", request, &reply, 5*time.Second)
+		if err == nil && reply.ChunkTransferParams.Data != nil {
+			return reply.ChunkTransferParams.Data, nil
+		}
+		fmt.Printf("Attempt %d: Failed to retrieve chunk %s from %s: %v\n", attempt, chunkName, nodeIP, err)
+		time.Sleep(retryInterval)
+	}
+	return nil, fmt.Errorf("failed to retrieve chunk %s from %s after %d attempts", chunkName, nodeIP, maxRetries)
+}
+
+// CallRPCMethodWithTimeout performs an RPC call with a specified timeout.
+func CallRPCMethodWithTimeout(ip string, method string, message Message, reply *Message, timeout time.Duration) error {
+	client, err := rpc.Dial("tcp", ip)
+	if err != nil {
+		return fmt.Errorf("failed to connect to node at %s: %v", ip, err)
+	}
+	defer client.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Call(method, message, reply)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("RPC call to %s failed: %v", ip, err)
+		}
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("RPC call to %s timed out after %v", ip, timeout)
+	}
+}

@@ -1,11 +1,13 @@
 package node
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -21,12 +23,6 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
-	// Single node failure - Simulate target node faliure during assembly
-	// os.Exit(1)
-
-	//Simulate node sleep during assembly, node will continue assembly process if it wakes up
-	//time.Sleep(2 * time.Minute)
-
 	if message.ChunkTransferParams.Chunks == nil || len(message.ChunkTransferParams.Chunks) == 0 {
 		return fmt.Errorf("no chunks to assemble")
 	}
@@ -39,18 +35,6 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	if err != nil {
 		return fmt.Errorf(err.Error())
 	}
-
-	// Single node failure - Simulate node failure before/during assembly (after sending chunk info)
-	// fmt.Printf("Pausing for 10 seconds before assembly. You can stop the sender now to simulate failure.\n")
-	// time.Sleep(10 * time.Second)
-
-	// Killing for experiment simulation
-	// fmt.Printf("Pausing for 15 seconds before assembly. You can stop the node now to simulate failure.\n")
-	// time.Sleep(15 * time.Second)
-
-	// Multiple Node Failures - Simulate node failure after during assembly
-	// fmt.Printf("Pausing for 20 seconds during assembly. Crash other nodes now.\n")
-	// time.Sleep(20 * time.Second)
 
 	err = n.getAllChunks(message.ChunkTransferParams.Chunks)
 	if err != nil {
@@ -67,18 +51,14 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 
 	fmt.Printf("File %s assembled successfully\n", outputFileName)
 
-	// Clean up the assemble folder
-	n.removeChunksRemotely(assembleFolder, message.ChunkTransferParams.Chunks)
-	n.removeChunksRemotely(dataFolder, message.ChunkTransferParams.Chunks)
-
-	_, err = CallRPCMethod(message.IP, "Node.AssemblerComplete", Message{})
+	err = CallRPCMethodWithTimeout(message.IP, "Node.AssemblerComplete", Message{}, reply, 5*time.Second)
 	if err != nil {
 		fmt.Printf("Error notifying sender of assembly completion: %v\n", err)
 	}
 	return nil
 }
 
-// Gets all the chunks from the nodes and compiles them into the /assemble folder.
+// / Gets all the chunks from the nodes and compiles them into the /assemble folder with majority voting.
 func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 	// Create the assemble folder if it doesn't exist
 	if err := os.MkdirAll(assembleFolder, 0755); err != nil {
@@ -94,78 +74,88 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 			},
 		}
 
-		// Incase the node fails during assembly, we have upto 3 retries to handle it(can be changed)
-		// time.Sleep(5 * time.Second)
-		maxRetries := 3
-		retries := 0
-		chunkFound := false
-		var chunkData []byte
+		// Find the primary node responsible for the chunk
+		err := n.FindSuccessor(message, &reply)
+		if err != nil {
+			fmt.Printf("Error finding successor for chunk %s: %v\n", chunk.ChunkName, err)
+			return err
+		}
 
-		// Start of the retry loop
-		for retries < maxRetries {
-			// Find the successor of the chunk key
-			n.FindSuccessor(message, &reply)
-			targetNode := Pointer{ID: reply.ID, IP: reply.IP}
+		primaryNode := Pointer{ID: reply.ID, IP: reply.IP}
+		successorList := n.SuccessorList
 
-			// Introduce a sleep to simulate delay
-			// fmt.Printf("Simulating delay before contacting target node %d (%s). You can stop the node now to simulate failure.\n", targetNode.ID, targetNode.IP)
-			// time.Sleep(10 * time.Second)
+		// Collect all replicas: primary node + successors
+		replicas := append([]Pointer{primaryNode}, successorList...)
 
-			// Attempt to get the successor list from the target node
-			successorReply, err := CallRPCMethod(targetNode.IP, "Node.GetSuccessorList", Message{})
+		// Map to store chunk hashes and their occurrence counts
+		hashCount := make(map[string]int)
+		// Map to store hash to actual data
+		hashData := make(map[string][]byte)
+		totalReplicas := 0
+
+		for _, replica := range replicas {
+			// Attempt to retrieve the chunk from the replica
+			chunkData, err := n.retrieveChunk(replica.IP, chunk.ChunkName)
 			if err != nil {
-				fmt.Printf("Failed to get successor list from node %d: %v\n", targetNode.ID, err)
-				// Node might have failed; retry FindSuccessor
-				retries++
-				fmt.Printf("Retrying FindSuccessor for chunk %s (attempt %d of %d)\n", chunk.ChunkName, retries, maxRetries)
-				continue // Retry from the beginning of the loop
+				fmt.Printf("Error retrieving chunk %s from Node-%d (%s): %v\n", chunk.ChunkName, replica.ID, replica.IP, err)
+				continue
 			}
 
-			// Initialize the list of nodes to try, starting with the target node
-			nodesToTry := []Pointer{targetNode}
-			// Append the successors to the nodesToTry list
-			nodesToTry = append(nodesToTry, successorReply.SuccessorList...)
+			// Compute SHA-256 hash of the chunk data
+			hash := fmt.Sprintf("%x", sha256.Sum256(chunkData))
+			hashCount[hash]++
+			// Store the data if not already stored
+			if _, exists := hashData[hash]; !exists {
+				hashData[hash] = chunkData
+			}
+			totalReplicas++
+		}
 
-			// Iterate over the nodes to try
-			for _, node := range nodesToTry {
-				// Attempt to get the chunk from the node
-				reply, err := CallRPCMethod(node.IP, "Node.SendChunk", message)
+		if totalReplicas == 0 {
+			return fmt.Errorf("no replicas available for chunk %s", chunk.ChunkName)
+		}
+
+		// Determine the majority hash
+		majorityHash, count := "", 0
+		for hash, c := range hashCount {
+			if c > count {
+				majorityHash = hash
+				count = c
+			}
+		}
+
+		// Check if majority is achieved
+		if count > totalReplicas/2 {
+			// Retrieve the data corresponding to the majority hash
+			majorityContent := hashData[majorityHash]
+			destinationPath := filepath.Join(assembleFolder, chunk.ChunkName)
+			err := os.WriteFile(destinationPath, majorityContent, 0644)
+			if err != nil {
+				return fmt.Errorf("error writing chunk %s to %s: %v", chunk.ChunkName, destinationPath, err)
+			}
+			fmt.Printf("Chunk %s assembled successfully with majority content from %d replicas.\n", chunk.ChunkName, count)
+		} else {
+			// Handle lack of majority
+			fmt.Printf("No majority for chunk %s. Received %d different contents.\n", chunk.ChunkName, len(hashCount))
+			// Optionally, choose the first available content or mark the chunk as corrupted
+			var fallbackContent []byte
+			for _, replica := range replicas {
+				chunkData, err := n.retrieveChunk(replica.IP, chunk.ChunkName)
 				if err != nil {
-					fmt.Printf("Error receiving chunk %s from node %d: %v\n", chunk.ChunkName, node.ID, err)
-					continue // Try the next node
+					continue
 				}
-
-				// Check if the chunk data is present
-				if reply.ChunkTransferParams.Data == nil || len(reply.ChunkTransferParams.Data) == 0 {
-					fmt.Printf("Node %d does not have the chunk %s\n", node.ID, chunk.ChunkName)
-					continue // Try the next node
-				}
-
-				// Chunk has been found
-				chunkData = reply.ChunkTransferParams.Data
-				chunkFound = true
-				fmt.Printf("Chunk %s successfully retrieved from node %d\n", chunk.ChunkName, node.ID)
+				fallbackContent = chunkData
 				break
 			}
-
-			if chunkFound {
-				break // Exit the retry loop
-			} else {
-				// If we haven't found the chunk, increment retries and attempt FindSuccessor again
-				retries++
-				fmt.Printf("Chunk %s not found, retrying FindSuccessor (attempt %d of %d)\n", chunk.ChunkName, retries, maxRetries)
+			if fallbackContent == nil {
+				return fmt.Errorf("unable to retrieve any content for chunk %s", chunk.ChunkName)
 			}
-		}
-
-		if !chunkFound {
-			return fmt.Errorf("failed to retrieve chunk %s from any node after %d attempts", chunk.ChunkName, maxRetries)
-		}
-
-		// Save the chunk data in the assemble directory
-		destinationPath := filepath.Join(assembleFolder, chunk.ChunkName)
-		err := os.WriteFile(destinationPath, chunkData, 0644)
-		if err != nil {
-			return fmt.Errorf("error writing chunk %s to %s: %v", chunk.ChunkName, destinationPath, err)
+			destinationPath := filepath.Join(assembleFolder, chunk.ChunkName)
+			err := os.WriteFile(destinationPath, fallbackContent, 0644)
+			if err != nil {
+				return fmt.Errorf("error writing chunk %s to %s: %v", chunk.ChunkName, destinationPath, err)
+			}
+			fmt.Printf("Chunk %s assembled with fallback content from the first available replica.\n", chunk.ChunkName)
 		}
 	}
 	return nil
