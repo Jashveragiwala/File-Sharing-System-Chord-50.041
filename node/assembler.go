@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 )
 
@@ -21,12 +22,6 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
-	// Single node failure - Simulate target node faliure during assembly
-	// os.Exit(1)
-
-	//Simulate node sleep during assembly, node will continue assembly process if it wakes up
-	//time.Sleep(2 * time.Minute)
-
 	if message.ChunkTransferParams.Chunks == nil || len(message.ChunkTransferParams.Chunks) == 0 {
 		return fmt.Errorf("no chunks to assemble")
 	}
@@ -40,25 +35,31 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 		return fmt.Errorf(err.Error())
 	}
 
-	// Single node failure - Simulate node failure before/during assembly (after sending chunk info)
-	// fmt.Printf("Pausing for 10 seconds before assembly. You can stop the sender now to simulate failure.\n")
-	// time.Sleep(10 * time.Second)
-
-	// Killing for experiment simulation
-	// fmt.Printf("Pausing for 15 seconds before assembly. You can stop the node now to simulate failure.\n")
-	// time.Sleep(15 * time.Second)
-
-	// Multiple Node Failures - Simulate node failure after during assembly
-	// fmt.Printf("Pausing for 20 seconds during assembly. Crash other nodes now.\n")
-	// time.Sleep(20 * time.Second)
-
+	// Retrieve all chunks from respective nodes
 	err = n.getAllChunks(message.ChunkTransferParams.Chunks)
 	if err != nil {
 		fmt.Printf("Error collecting chunks: %v\n", err)
 		return err
 	}
 
-	err = assembleChunks(outputFileName, message.ChunkTransferParams.Chunks)
+	// Sort the chunks based on their Sequence numbers to ensure correct assembly order
+	sortedChunks := make([]ChunkInfo, len(message.ChunkTransferParams.Chunks))
+	copy(sortedChunks, message.ChunkTransferParams.Chunks)
+
+	sort.Slice(sortedChunks, func(i, j int) bool {
+		return sortedChunks[i].Sequence < sortedChunks[j].Sequence
+	})
+
+	// Verify that the sequence numbers are continuous and start from 1
+	for idx, chunk := range sortedChunks {
+		expectedSeq := idx + 1
+		if chunk.Sequence != expectedSeq {
+			return fmt.Errorf("chunk %s has incorrect sequence number: expected %d, got %d", chunk.ChunkName, expectedSeq, chunk.Sequence)
+		}
+	}
+
+	// Proceed with assembly using sortedChunks
+	err = assembleChunks(outputFileName, sortedChunks)
 	if err != nil {
 		fmt.Printf("Error assembling chunks: %v\n", err)
 		fmt.Printf("Aborting assembling...\n")
@@ -67,10 +68,11 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 
 	fmt.Printf("File %s assembled successfully\n", outputFileName)
 
-	// Clean up the assemble folder
-	n.removeChunksRemotely(assembleFolder, message.ChunkTransferParams.Chunks)
-	n.removeChunksRemotely(dataFolder, message.ChunkTransferParams.Chunks)
+	// Clean up the assemble and shared folders
+	n.removeChunksRemotely(assembleFolder, sortedChunks)
+	n.removeChunksRemotely(dataFolder, sortedChunks)
 
+	// Notify the sender of assembly completion
 	_, err = CallRPCMethod(message.IP, "Node.AssemblerComplete", Message{})
 	if err != nil {
 		fmt.Printf("Error notifying sender of assembly completion: %v\n", err)
@@ -174,7 +176,7 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 // Function to assemble all the chunks from the assemble folder
 func assembleChunks(outputFileName string, chunks []ChunkInfo) error {
 
-	// Making the output file
+	// Creating the output folder if it doesn't exist
 	if err := os.MkdirAll(outputFolder, 0755); err != nil {
 		return fmt.Errorf("error creating output folder: %v", err)
 	}
@@ -187,16 +189,17 @@ func assembleChunks(outputFileName string, chunks []ChunkInfo) error {
 	}
 	defer outFile.Close()
 
-	for i, chunk := range chunks {
-		// filename-chunk
+	for _, chunk := range chunks {
+		// Read the chunk data from the assemble directory
 		content, err := ioutil.ReadFile(filepath.Join(assembleFolder, chunk.ChunkName))
 		if err != nil {
-			return fmt.Errorf("error reading chunk %s-chunk%d.txt: %v", chunk.ChunkName, int(i+1), err)
+			return fmt.Errorf("error reading chunk %s: %v", chunk.ChunkName, err)
 		}
 
+		// Write the chunk data to the output file
 		_, err = outFile.Write(content)
 		if err != nil {
-			return fmt.Errorf("error writing chunk %s-chunk%d.txt to output file: %v", chunk.ChunkName, int(i+1), err)
+			return fmt.Errorf("error writing chunk %s to output file: %v", chunk.ChunkName, err)
 		}
 	}
 

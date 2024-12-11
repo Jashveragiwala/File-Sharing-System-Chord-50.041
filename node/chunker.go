@@ -5,27 +5,32 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
+const (
+	TargetRetry = 10 * time.Second
+)
+
 type ChunkInfo struct {
 	Key       int
 	ChunkName string
+	Sequence  int
 }
 
 func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time) []ChunkInfo {
 	dataDir := "/local" // Change if needed
 	var chunkSize int
-	const TargetRetry = 10 * time.Second
 	var chunks []ChunkInfo
 
-	// checking if the file exists in the loacl file path of the docker container
+	// Check if the file exists in the local file path
 	filePath := filepath.Join(dataDir, fileName)
 	fileInfo, err := os.Stat(filePath)
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	if os.IsNotExist(err) {
 		fmt.Printf("File %s does not exist in directory %s\n", fileName, dataDir)
 		return nil
 	} else if err != nil {
@@ -33,17 +38,16 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 		return nil
 	}
 
-	fileSize := fileInfo.Size()    // Convert to KB
-	fileSizenew := fileSize / 1000 // Convert to MB
+	fileSize := fileInfo.Size()    // Size in bytes
+	fileSizenew := fileSize / 1000 // Convert to KB
 
 	// Calculate number of chunks using logarithmic scaling
-	// log2(fileSize) rounded up, with a minimum of 1 and maximum of 20
 	numChunks := int(math.Ceil(math.Log2(math.Max(float64(fileSizenew), 1))))
-	// numChunks = max(1, min(numChunks, 20))
 
 	// Dynamically calculate chunk size
 	chunkSize = int(math.Ceil(float64(fileSize) / float64(numChunks)))
-	fmt.Printf("Chunk size: %v, number of Chunks: %v", chunkSize, numChunks)
+	fmt.Printf("Chunk size: %v bytes, number of Chunks: %v\n", chunkSize, numChunks)
+
 	// Open the source file
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -58,10 +62,6 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	buffer := make([]byte, chunkSize)
 	chunkNumber := 1
 
-	// Single node failure - Simulate node failure before chunking (before sending chunk info)
-	// fmt.Println("Waiting for 10 seconds before chunking. You can now kill the sender node.")
-	// time.Sleep(10 * time.Second)
-
 	for {
 		bytesRead, err := file.Read(buffer)
 		if err != nil && err != io.EOF {
@@ -72,10 +72,9 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 			break
 		}
 
-		// Create the chunk file name by appending the chunk number at the end of the sanitized path without extension
-		os.Setenv("TZ", "Asia/Singapore")
+		// Create the chunk file name by appending the chunk number and sequence
 		timestamp := time.Now().In(time.Local).Format("02012006_150405")
-		chunkFileName := fmt.Sprintf("%s-chunk-%d-%d-%s%s", baseName, chunkNumber, n.ID, timestamp, ext)
+		chunkFileName := fmt.Sprintf("%s-chunk-%d-%s%s", baseName, chunkNumber, timestamp, ext)
 		chunkFilePath := filepath.Join(dataDir, chunkFileName)
 		err = os.WriteFile(chunkFilePath, buffer[:bytesRead], 0644)
 		if err != nil {
@@ -88,27 +87,22 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 		chunks = append(chunks, ChunkInfo{
 			Key:       hashedKey,
 			ChunkName: chunkFileName,
+			Sequence:  chunkNumber, // Assign sequence number
 		})
-
-		//Simulate Target Node failure during chunking
-
-		//Force exit the target node after writing a few chunks (e.g., after 2 chunks)
-		// if chunkNumber == 2 {
-		// 	fmt.Printf("Triggering target node failure...\n")
-		// 	_, err = CallRPCMethod(targetNodeIP, "Node.ForceExit", Message{})
-		// 	if err != nil {
-		// 		fmt.Printf("Failed to trigger target node failure: %v\n", err)
-		// 	}
-		// }
 
 		fmt.Printf("Chunks: %v\n", chunks)
 		chunkNumber++
 	}
 
+	// Simulate the sender providing chunks out of order by shuffling the slice
+	shuffleChunks(chunks)
+
+	fmt.Println("Chunks after shuffling:", chunks)
+
 	fmt.Println("Sending the chunks to the receiver folder of the target node ...")
 	err = n.send(chunks, targetNodeIP)
 	if err != nil {
-		fmt.Printf("Target Node is down,failed to send chunks to target node: %v\n", err)
+		fmt.Printf("Target Node is down, failed to send chunks to target node: %v\n", err)
 		// Cleanup chunks since sending failed
 		n.removeChunksRemotely(localFolder, chunks)
 		n.removeChunksRemotely(dataFolder, chunks)
@@ -134,11 +128,6 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	}
 	fmt.Printf("Sending chunk info to the target node at %s. Chunk info %v\n", targetNodeIP, chunks)
 
-	// Uncomment this for target node sleeping before receiving chunk info
-	fmt.Printf("Going to send to chunk location receiver\n")
-	// fmt.Printf("Kill the target node in the 3 second duration.\n")
-	// time.Sleep(3 * time.Second)
-	
 	retryInterval := 2 * time.Second
 	retryStartTime := time.Now()
 	var sendErr error
@@ -163,6 +152,13 @@ func (n *Node) Chunker(fileName string, targetNodeIP string, startTime time.Time
 	n.removeChunksRemotely(localFolder, chunks)
 
 	return chunks
+}
+
+func shuffleChunks(chunks []ChunkInfo) {
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(chunks), func(i, j int) {
+		chunks[i], chunks[j] = chunks[j], chunks[i]
+	})
 }
 
 // ReceiveChunk handles receiving a chunk and saving it to the shared directory
@@ -331,9 +327,9 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 }
 
 func (n *Node) AssemblerComplete(message Message, reply *Message) error {
-	green := "\033[32m"  // ANSI code for red text
-	reset := "\033[0m" // ANSI code to reset color
+	green := "\033[32m" // ANSI code for red text
+	reset := "\033[0m"  // ANSI code to reset color
 	fmt.Printf("File Transfer has successfully completed.\n")
-	fmt.Printf(green + "Time taken: %v\n" + reset, time.Since(n.StartReq))
+	fmt.Printf(green+"Time taken: %v\n"+reset, time.Since(n.StartReq))
 	return nil
 }
