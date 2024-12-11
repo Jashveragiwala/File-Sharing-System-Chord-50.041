@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Constants defining folder paths
 const (
 	localFolder    = "/local"
 	dataFolder     = "/shared"   // Directory where the chunks are stored
@@ -19,10 +20,12 @@ const (
 
 // Assembler is a function that assembles the chunks of a file
 func (n *Node) Assembler(message Message, reply *Message) error {
+	// Lock the node to safely update the AssemblerChunks
 	n.Lock.Lock()
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
+	// Validate chunk information
 	if message.ChunkTransferParams.Chunks == nil || len(message.ChunkTransferParams.Chunks) == 0 {
 		return fmt.Errorf("no chunks to assemble")
 	}
@@ -36,12 +39,17 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 		return fmt.Errorf(err.Error())
 	}
 
+	// Start timing the assembly process
+	startTime := time.Now()
+
+	// Retrieve all chunks with majority voting
 	err = n.getAllChunks(message.ChunkTransferParams.Chunks)
 	if err != nil {
 		fmt.Printf("Error collecting chunks: %v\n", err)
 		return err
 	}
 
+	// Assemble the chunks into the final file
 	err = assembleChunks(outputFileName, message.ChunkTransferParams.Chunks)
 	if err != nil {
 		fmt.Printf("Error assembling chunks: %v\n", err)
@@ -51,14 +59,37 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 
 	fmt.Printf("File %s assembled successfully\n", outputFileName)
 
-	err = CallRPCMethodWithTimeout(message.IP, "Node.AssemblerComplete", Message{}, reply, 5*time.Second)
+	// Clean up the assemble and shared folders
+	err = n.removeChunksRemotely(assembleFolder, message.ChunkTransferParams.Chunks)
+	if err != nil {
+		fmt.Printf("Error removing chunks from assemble folder: %v\n", err)
+	}
+
+	err = n.removeChunksRemotely(dataFolder, message.ChunkTransferParams.Chunks)
+	if err != nil {
+		fmt.Printf("Error removing chunks from shared folder: %v\n", err)
+	}
+
+	// Notify the sender of assembly completion with the time taken
+	assemblyTime := time.Since(startTime)
+	assemblyCompleteMsg := Message{
+		Type: "ASSEMBLER_COMPLETE",
+		// Since 'Content' is not defined in Message struct, we can utilize 'ChunkTransferParams.Data' to send the message.
+		ChunkTransferParams: ChunkTransferRequest{
+			Data: []byte(fmt.Sprintf("Assembly completed in %v", assemblyTime)),
+		},
+	}
+
+	// CallRPCMethodWithTimeout is assumed to have the following signature:
+	// func CallRPCMethodWithTimeout(ip string, method string, message Message, reply *Message, timeout time.Duration) error
+	err = CallRPCMethodWithTimeout(message.IP, "Node.AssemblerComplete", assemblyCompleteMsg, reply, 5*time.Second)
 	if err != nil {
 		fmt.Printf("Error notifying sender of assembly completion: %v\n", err)
 	}
 	return nil
 }
 
-// / Gets all the chunks from the nodes and compiles them into the /assemble folder with majority voting.
+// / getAllChunks retrieves all replicas for each chunk and performs majority voting
 func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 	// Create the assemble folder if it doesn't exist
 	if err := os.MkdirAll(assembleFolder, 0755); err != nil {
@@ -66,7 +97,6 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 	}
 
 	for _, chunk := range chunkInfo {
-		var reply Message
 		message := Message{
 			ID: chunk.Key,
 			ChunkTransferParams: ChunkTransferRequest{
@@ -74,20 +104,33 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 			},
 		}
 
-		// Find the primary node responsible for the chunk
-		err := n.FindSuccessor(message, &reply)
+		// Find the primary node responsible for the chunk by calling FindSuccessor on the current node
+		primaryReply, err := CallRPCMethod(n.IP, "Node.FindSuccessor", message)
 		if err != nil {
 			fmt.Printf("Error finding successor for chunk %s: %v\n", chunk.ChunkName, err)
 			return err
 		}
 
-		primaryNode := Pointer{ID: reply.ID, IP: reply.IP}
-		successorList := n.SuccessorList
+		// Initialize primaryNode with the reply
+		primaryNode := Pointer{ID: primaryReply.ID, IP: primaryReply.IP}
+
+		// Retrieve the primary node's successor list
+		successorReply, err := CallRPCMethod(primaryNode.IP, "Node.GetSuccessorList", Message{})
+		if err != nil {
+			fmt.Printf("Failed to get successor list from primary node %s: %v\n", primaryNode.IP, err)
+			return err
+		}
+
+		// Assuming SuccessorList is a slice of Pointer in the Message struct
+		successorList := successorReply.SuccessorList
 
 		// Collect all replicas: primary node + successors
 		replicas := append([]Pointer{primaryNode}, successorList...)
 
-		// Map to store chunk hashes and their occurrence counts
+		// Debug: Log the replicas being queried
+		fmt.Printf("[getAllChunks] Replicas for chunk %s: %v\n", chunk.ChunkName, replicas)
+
+		// Maps to store chunk hashes and their occurrence counts
 		hashCount := make(map[string]int)
 		// Map to store hash to actual data
 		hashData := make(map[string][]byte)
@@ -102,7 +145,8 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 			}
 
 			// Compute SHA-256 hash of the chunk data
-			hash := fmt.Sprintf("%x", sha256.Sum256(chunkData))
+			hashBytes := sha256.Sum256(chunkData)
+			hash := fmt.Sprintf("%x", hashBytes)
 			hashCount[hash]++
 			// Store the data if not already stored
 			if _, exists := hashData[hash]; !exists {
@@ -161,10 +205,10 @@ func (n *Node) getAllChunks(chunkInfo []ChunkInfo) error {
 	return nil
 }
 
-// Function to assemble all the chunks from the assemble folder
+// assembleChunks concatenates all the chunks into the final output file
 func assembleChunks(outputFileName string, chunks []ChunkInfo) error {
 
-	// Making the output file
+	// Creating the output folder if it doesn't exist
 	if err := os.MkdirAll(outputFolder, 0755); err != nil {
 		return fmt.Errorf("error creating output folder: %v", err)
 	}
@@ -178,12 +222,13 @@ func assembleChunks(outputFileName string, chunks []ChunkInfo) error {
 	defer outFile.Close()
 
 	for i, chunk := range chunks {
-		// filename-chunk
+		// Read the chunk data from the assemble directory
 		content, err := ioutil.ReadFile(filepath.Join(assembleFolder, chunk.ChunkName))
 		if err != nil {
 			return fmt.Errorf("error reading chunk %s-chunk%d.txt: %v", chunk.ChunkName, int(i+1), err)
 		}
 
+		// Write the chunk data to the output file
 		_, err = outFile.Write(content)
 		if err != nil {
 			return fmt.Errorf("error writing chunk %s-chunk%d.txt to output file: %v", chunk.ChunkName, int(i+1), err)
@@ -193,6 +238,7 @@ func assembleChunks(outputFileName string, chunks []ChunkInfo) error {
 	return nil
 }
 
+// getFileNames extracts the original file name from the chunk name
 func getFileNames(chunkName string, senderID int) (string, error) {
 	for i, v := range chunkName {
 		if v == '-' && chunkName[i+1:i+6] == "chunk" {
