@@ -22,6 +22,9 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
+	//Simulate target node failure before assembly
+	os.Exit(1)
+
 	if message.ChunkTransferParams.Chunks == nil || len(message.ChunkTransferParams.Chunks) == 0 {
 		return fmt.Errorf("no chunks to assemble")
 	}
