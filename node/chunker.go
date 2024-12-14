@@ -272,9 +272,6 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 		return fmt.Errorf("no chunks to process")
 	}
 
-	//Simulate target node failure before assembly
-	//os.Exit(1)
-
 	// Create a copy of the chunks to pass to the goroutine
 	chunksCopy := make([]ChunkInfo, len(message.ChunkTransferParams.Chunks))
 	copy(chunksCopy, message.ChunkTransferParams.Chunks)

@@ -21,9 +21,6 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
-	// Single node failure - Simulate target node faliure during assembly
-	os.Exit(1)
-
 	//Simulate node sleep during assembly, node will continue assembly process if it wakes up
 	//time.Sleep(2 * time.Minute)
 
@@ -56,7 +53,12 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	if err != nil {
 		fmt.Printf("Error collecting chunks: %v\n", err)
 		return err
+	} else {
+		fmt.Printf("Received all the chunks \n")
 	}
+
+	//Simulate target node failure during assembly
+	os.Exit(1)
 
 	err = assembleChunks(outputFileName, message.ChunkTransferParams.Chunks)
 	if err != nil {
