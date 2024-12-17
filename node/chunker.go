@@ -284,7 +284,7 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 	copy(chunksCopy, message.ChunkTransferParams.Chunks)
 
 	// Single node failure - Simulate node failure before chunking (before sending chunk info)
-	// time.Sleep(10 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	done := make(chan error, 1)
 	// Trigger assembler as a goroutine
