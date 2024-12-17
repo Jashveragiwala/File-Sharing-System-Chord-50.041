@@ -74,7 +74,7 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 
 	_, err = CallRPCMethod(message.IP, "Node.AssemblerComplete", Message{})
 	if err != nil {
-		fmt.Printf("Error notifying sender of assembly completion: %v\n", err)
+		// fmt.Printf("Error notifying sender of assembly completion: %v\n", err)
 	}
 	return nil
 }
