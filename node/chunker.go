@@ -266,9 +266,10 @@ func (n *Node) ChunkLocationReceiver(message Message, reply *Message) error {
 	// Validate chunk information
 	if message.ChunkTransferParams.Chunks == nil || len(message.ChunkTransferParams.Chunks) == 0 {
 		return fmt.Errorf("no chunks to process")
-	} else {
-		fmt.Printf("Chunk Info received \n")
 	}
+
+	//Simulate target node failure before assembly
+	//os.Exit(1)
 
 	// Create a copy of the chunks to pass to the goroutine
 	chunksCopy := make([]ChunkInfo, len(message.ChunkTransferParams.Chunks))
