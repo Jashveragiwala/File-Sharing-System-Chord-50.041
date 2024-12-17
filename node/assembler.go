@@ -21,8 +21,8 @@ func (n *Node) Assembler(message Message, reply *Message) error {
 	n.AssemblerChunks = message.ChunkTransferParams.Chunks // Update the chunks list
 	n.Lock.Unlock()
 
-	// Single node failure - Simulate target node faliure during assembly
-	// os.Exit(1)
+	//Simulate target node failure before assembly
+	os.Exit(1)
 
 	//Simulate node sleep during assembly, node will continue assembly process if it wakes up
 	//time.Sleep(2 * time.Minute)
