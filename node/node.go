@@ -196,7 +196,7 @@ func (n *Node) ConfirmFileTransfer(request Message, reply *Message) error {
 	fmt.Scanln(&userResponse)
 	// fmt.Printf()
 	// fmt.Printf("User response: %s\n", userResponse)
-	if userResponse == "es" {
+	if userResponse == "ys" || userResponse == "yes" || userResponse == "es" { // To ensure that the user response detected is "yes".(scan function bug)
 		go n.handleReceiverTimeout(request.IP)
 		*reply = Message{
 			Type: CONFIRM,
